@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JustIA - Clasificador Jurídico</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>&#x2696;&#xFE0F; JustIA</h1>
+  <p class="subtitle">Clasificaci&oacute;n Autom&aacute;tica de Textos Jur&iacute;dicos</p>
+
+  <div class="stats">
+    <div class="stat-card"><div class="num">{{ registros }}</div><div class="label">Registros</div></div>
+    <div class="stat-card"><div class="num">{{ categorias }}</div><div class="label">Categor&iacute;as</div></div>
+    <div class="stat-card"><div class="num">{{ accuracy }}</div><div class="label">Accuracy</div></div>
+  </div>
+
+  <div class="card">
+    <h2>&#x1F9EA; Probar clasificador</h2>
+    <textarea id="inputText" rows="3" placeholder="Escribe una consulta jur&iacute;dica...">Mi jefe no me paga el subsidio de transporte y tampoco las cesant&iacute;as.</textarea>
+    <button class="btn" id="predictBtn" onclick="predecir()">Clasificar</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>&#x1F4CA; Matriz de Confusi&oacute;n</h2>
+    {{ matriz }}
+  </div>
+
+  <div class="card">
+    <h2>&#x1F4C8; M&eacute;tricas por Categor&iacute;a</h2>
+    <table class="metrics-table">
+      <thead>
+        <tr>
+          <th>Categor&iacute;a</th>
+          <th>Precisi&oacute;n</th>
+          <th>Sensibilidad</th>
+          <th>F1-Score</th>
+          <th>Soporte</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ metricas_rows }}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>&#x1F4C2; Dataset ({{ registros }} registros)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Texto</th><th>Categor&iacute;a</th></tr></thead>
+        <tbody>
+          {{ filas }}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

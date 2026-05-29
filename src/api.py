@@ -1,8 +1,10 @@
 import logging
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.model import JustiaClassifier
@@ -10,125 +12,7 @@ from src.predict import clasificar_consulta, ClasificadorError
 
 log = logging.getLogger(__name__)
 
-HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JustIA - Clasificador Jurídico</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    background: #0f172a; color: #e2e8f0;
-    min-height: 100vh;
-  }
-  .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-  h1 { font-size: 2rem; font-weight: 700; margin-bottom: .25rem; background: linear-gradient(135deg,#60a5fa,#a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .subtitle { color: #94a3b8; margin-bottom: 2rem; font-size: .95rem; }
-  .stats { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-  .stat-card { background: #1e293b; border-radius: 12px; padding: 1.25rem 1.5rem; flex: 1; min-width: 140px; border: 1px solid #334155; }
-  .stat-card .num { font-size: 1.8rem; font-weight: 700; color: #60a5fa; }
-  .stat-card .label { color: #94a3b8; font-size: .85rem; }
-  .card { background: #1e293b; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; border: 1px solid #334155; }
-  .card h2 { font-size: 1.15rem; margin-bottom: 1rem; color: #f1f5f9; }
-  textarea {
-    width: 100%; padding: .85rem; border-radius: 8px; border: 1px solid #334155;
-    background: #0f172a; color: #e2e8f0; font-size: .95rem; resize: vertical;
-    font-family: inherit; margin-bottom: 1rem;
-  }
-  textarea:focus { outline: none; border-color: #60a5fa; }
-  .btn {
-    background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; border: none;
-    padding: .7rem 2rem; border-radius: 8px; font-size: .95rem; font-weight: 600;
-    cursor: pointer; transition: opacity .2s;
-  }
-  .btn:hover { opacity: .85; }
-  .btn:disabled { opacity: .5; cursor: not-allowed; }
-  #result { margin-top: 1rem; padding: 1rem; border-radius: 8px; display: none; }
-  #result.show { display: block; }
-  .pred { background: #065f46; border: 1px solid #10b981; }
-  .error { background: #7f1d1d; border: 1px solid #ef4444; }
-  .prob-bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; margin-top: .75rem; }
-  .prob-seg { display: flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 600; color: #fff; transition: width .4s; min-width: fit-content; padding: 0 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-  th, td { padding: .6rem .75rem; text-align: left; border-bottom: 1px solid #334155; }
-  th { color: #94a3b8; font-weight: 600; position: sticky; top: 0; background: #1e293b; }
-  .badge { display: inline-block; padding: .2rem .7rem; border-radius: 20px; font-size: .75rem; font-weight: 600; background: #334155; color: #e2e8f0; }
-  .scroll { max-height: 400px; overflow-y: auto; border-radius: 8px; }
-  .cm-table { width: auto; margin: 0 auto; }
-  .cm-table th { background: #334155; }
-  .loader { display: inline-block; width: 16px; height: 16px; border: 2px solid #94a3b8; border-top-color: #60a5fa; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-</style>
-</head>
-<body>
-<div class="container">
-  <h1>&#x2696;&#xFE0F; JustIA</h1>
-  <p class="subtitle">Clasificaci&oacute;n Autom&aacute;tica de Textos Jur&iacute;dicos</p>
-
-  <div class="stats">
-    <div class="stat-card"><div class="num">__REGISTROS__</div><div class="label">Registros</div></div>
-    <div class="stat-card"><div class="num">__CATEGORIAS__</div><div class="label">Categor&iacute;as</div></div>
-    <div class="stat-card"><div class="num">__ACCURACY__</div><div class="label">Accuracy</div></div>
-  </div>
-
-  <div class="card">
-    <h2>&#x1F9EA; Probar clasificador</h2>
-    <textarea id="inputText" rows="3" placeholder="Escribe una consulta jur&iacute;dica...">Mi jefe no me paga el subsidio de transporte y tampoco las cesant&iacute;as.</textarea>
-    <button class="btn" id="predictBtn" onclick="predecir()">Clasificar</button>
-    <div id="result"></div>
-  </div>
-
-  <div class="card">
-    <h2>&#x1F4CA; Matriz de Confusi&oacute;n</h2>
-    __MATRIZ__
-  </div>
-
-  <div class="card">
-    <h2>&#x1F4C2; Dataset (__REGISTROS__ registros)</h2>
-    <div class="scroll">
-      <table><thead><tr><th>Texto</th><th>Categor&iacute;a</th></tr></thead><tbody>
-        __FILAS__
-      </tbody></table>
-    </div>
-  </div>
-</div>
-
-<script>
-async function predecir() {
-  const btn = document.getElementById('predictBtn');
-  const result = document.getElementById('result');
-  const texto = document.getElementById('inputText').value.trim();
-  if (!texto) { result.className = 'error show'; result.innerHTML = '&#x26A0;&#xFE0F; Ingresa un texto.'; return; }
-  btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Clasificando...';
-  result.className = '';
-  try {
-    const res = await fetch('/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({texto}) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error');
-    let bars = '';
-    const colors = ['#3b82f6','#8b5cf6','#ef4444','#10b981','#f59e0b'];
-    const total = data.top_n.reduce((a,b) => a + b[1], 0);
-    data.top_n.forEach((p, i) => {
-      const pct = ((p[1] / total) * 100).toFixed(1);
-      bars += '<div class="prob-seg" style="width:' + pct + '%;background:' + colors[i % colors.length] + '">' + p[0] + ' ' + pct + '%</div>';
-    });
-    result.className = 'pred show';
-    result.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-      '<strong>Categor&iacute;a: <span style="color:#34d399">' + data.categoria_predicha + '</span></strong>' +
-      '<span>Confianza: <strong>' + data.confianza + '%</strong></span></div>' +
-      '<div class="prob-bar">' + bars + '</div>';
-  } catch(e) {
-    result.className = 'error show';
-    result.innerHTML = '&#x26A0;&#xFE0F; ' + e.message;
-  } finally {
-    btn.disabled = false; btn.innerHTML = 'Clasificar';
-  }
-}
-</script>
-</body>
-</html>"""
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 
 class ConsultaInput(BaseModel):
@@ -149,6 +33,9 @@ def crear_app(
     metricas: dict,
 ) -> FastAPI:
     app = FastAPI(title="JustIA - Clasificador Jurídico")
+    app.mount("/static", StaticFiles(directory=str(TEMPLATES_DIR)), name="static")
+
+    template_path = TEMPLATES_DIR / "index.html"
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
@@ -160,14 +47,48 @@ def crear_app(
             for _, r in dataframe.iterrows()
         )
 
-        html = HTML_TEMPLATE
-        html = html.replace("__REGISTROS__", str(len(dataframe)))
-        html = html.replace("__CATEGORIAS__", str(len(categorias)))
-        html = html.replace("__ACCURACY__", acc_pct)
-        html = html.replace("__FILAS__", filas)
-        html = html.replace(
-            "__MATRIZ__", metricas["confusion_matrix"].to_html(classes="cm-table")
+        reporte = metricas["classification_report"]
+        labels = metricas["labels"]
+
+        accuracy = metricas["accuracy"]
+        metricas_rows = ""
+        for label in labels:
+            m = reporte[label]
+            metricas_rows += (
+                f"<tr><td>{label}</td>"
+                f"<td>{m['precision']:.2f}</td>"
+                f"<td>{m['recall']:.2f}</td>"
+                f"<td>{m['f1-score']:.2f}</td>"
+                f"<td>{int(m['support'])}</td></tr>"
+            )
+        metricas_rows += (
+            f"<tr class='avg-row'><td>Promedio macro</td>"
+            f"<td>{reporte['macro avg']['precision']:.2f}</td>"
+            f"<td>{reporte['macro avg']['recall']:.2f}</td>"
+            f"<td>{reporte['macro avg']['f1-score']:.2f}</td>"
+            f"<td>{int(reporte['macro avg']['support'])}</td></tr>"
         )
+        metricas_rows += (
+            f"<tr class='avg-row'><td>Promedio ponderado</td>"
+            f"<td>{reporte['weighted avg']['precision']:.2f}</td>"
+            f"<td>{reporte['weighted avg']['recall']:.2f}</td>"
+            f"<td>{reporte['weighted avg']['f1-score']:.2f}</td>"
+            f"<td>{int(reporte['weighted avg']['support'])}</td></tr>"
+        )
+        metricas_rows += (
+            f"<tr class='accuracy-row'><td>Exactitud (Accuracy)</td>"
+            f"<td colspan='4'>{accuracy:.2%}</td></tr>"
+        )
+
+        html = template_path.read_text(encoding="utf-8")
+        html = html.replace("{{ registros }}", str(len(dataframe)))
+        html = html.replace("{{ categorias }}", str(len(categorias)))
+        html = html.replace("{{ accuracy }}", acc_pct)
+        html = html.replace("{{ filas }}", filas)
+        html = html.replace(
+            "{{ matriz }}", metricas["confusion_matrix"].to_html(classes="cm-table")
+        )
+        html = html.replace("{{ metricas_rows }}", metricas_rows)
 
         return HTMLResponse(content=html)
 

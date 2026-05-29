@@ -1,11 +1,33 @@
+"""
+================================================================================
+JustIA - MVP: Clasificación Automática de Textos Legales
+================================================================================
+Proyecto de Aplicación - Asturias Corporación Universitaria
+Asignatura: Inteligencia Artificial para el Desarrollo de Software
+
+Descripción:
+    Módulo funcional que clasifica automáticamente consultas y textos jurídicos
+    en categorías temáticas (Familia, Laboral, Penal, Civil, Administrativo)
+    usando TF-IDF + Naive Bayes, con datos sintéticos representativos del
+    contexto colombiano.
+================================================================================
+"""
+
 import pandas as pd
-from typing import List, Tuple
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import warnings
+warnings.filterwarnings('ignore')
 
+# ==============================================================================
+# 1. DATOS JURÍDICOS SINTÉTICOS (contexto colombiano) — 150 muestras
+# ==============================================================================
 
-def cargar_datos_sinteticos() -> pd.DataFrame:
-    from src.config import CATEGORIAS
-
-    datos: List[Tuple[str, str]] = [
+datos_juridicos = [
     # ---- DERECHO DE FAMILIA (30 muestras) ----
     # Originales
     ("Solicito custodia compartida de mis hijos menores tras el divorcio.", "Familia"),
@@ -177,10 +199,142 @@ def cargar_datos_sinteticos() -> pd.DataFrame:
     ("Quiero interponer acción de tutela para proteger mi derecho a la salud frente a la EPS.", "Administrativo"),
 ]
 
+# Convertir a DataFrame
+df = pd.DataFrame(datos_juridicos, columns=["texto", "categoria"])
 
-    df = pd.DataFrame(datos, columns=["texto", "categoria"])
-    return df
+print("=" * 70)
+print("  JustIA - Sistema de Clasificación Automática de Textos Jurídicos")
+print("=" * 70)
+print(f"\n📄 Total de registros en el dataset: {len(df)}")
+print(f"📂 Categorías: {df['categoria'].unique().tolist()}")
+print(f"\n📊 Distribución por categoría:")
+print(df['categoria'].value_counts().to_string())
 
+# ==============================================================================
+# 2. CONSTRUCCIÓN DEL PIPELINE DE CLASIFICACIÓN
+# ==============================================================================
 
-def cargar_datos_desde_csv(ruta: str) -> pd.DataFrame:
-    return pd.read_csv(ruta)
+print("\n" + "=" * 70)
+print("  FASE 1: Entrenamiento del Modelo")
+print("=" * 70)
+
+# Dividir datos en entrenamiento y prueba
+X = df['texto']
+y = df['categoria']
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
+
+print(f"\n🔀 División de datos:")
+print(f"   - Entrenamiento: {len(X_train)} muestras")
+print(f"   - Prueba:        {len(X_test)} muestras")
+
+# Pipeline: TF-IDF + Naive Bayes Multinomial
+pipeline = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        ngram_range=(1, 2),      # Unigramas y bigramas
+        min_df=2,                 # Término debe aparecer al menos 2 veces
+        max_features=2000,        # Vocabulario ampliado para mayor cobertura
+        sublinear_tf=True         # Suavizado logarítmico
+    )),
+    ('clf', MultinomialNB(alpha=0.3))  # Alpha reducido: más datos = menos suavizado necesario
+])
+
+# Entrenar
+pipeline.fit(X_train, y_train)
+print("\n✅ Modelo entrenado exitosamente.")
+
+# ==============================================================================
+# 3. EVALUACIÓN DEL MODELO
+# ==============================================================================
+
+print("\n" + "=" * 70)
+print("  FASE 2: Evaluación del Modelo")
+print("=" * 70)
+
+y_pred = pipeline.predict(X_test)
+acc = accuracy_score(y_test, y_pred)
+
+print(f"\n🎯 Exactitud (Accuracy): {acc:.2%}")
+print("\n📋 Reporte de Clasificación:")
+print(classification_report(y_test, y_pred))
+
+print("\n🔢 Matriz de Confusión:")
+labels = sorted(df['categoria'].unique())
+cm = confusion_matrix(y_test, y_pred, labels=labels)
+cm_df = pd.DataFrame(cm, index=labels, columns=labels)
+print(cm_df.to_string())
+
+# ==============================================================================
+# 4. FUNCIÓN DE INFERENCIA (Clasificación de nuevos textos)
+# ==============================================================================
+
+def clasificar_consulta(texto: str) -> dict:
+    """
+    Clasifica un texto jurídico en una de las 5 categorías del sistema.
+
+    Parámetros:
+        texto (str): Consulta o fragmento jurídico a clasificar.
+
+    Retorna:
+        dict: Categoría predicha y probabilidades por clase.
+    """
+    categoria = pipeline.predict([texto])[0]
+    probs = pipeline.predict_proba([texto])[0]
+    clases = pipeline.classes_
+    probabilidades = {c: round(float(p), 4) for c, p in zip(clases, probs)}
+    return {
+        "texto": texto,
+        "categoria_predicha": categoria,
+        "confianza": round(max(probs) * 100, 1),
+        "probabilidades": probabilidades
+    }
+
+# ==============================================================================
+# 5. DEMOSTRACIÓN CON CASOS DE PRUEBA
+# ==============================================================================
+
+print("\n" + "=" * 70)
+print("  FASE 3: Demostración con Casos de Prueba Nuevos")
+print("=" * 70)
+
+casos_demo = [
+    "Mi jefe no me paga el subsidio de transporte y tampoco las cesantías.",
+    "Fui víctima de violación de domicilio y quiero denunciarlo.",
+    "Necesito disolver la sociedad limitada que tengo con mi hermano.",
+    "La DIAN me embargó la cuenta sin notificarme previamente.",
+    "Quiero recuperar la custodia de mi hija después de la separación.",
+]
+
+print()
+for caso in casos_demo:
+    resultado = clasificar_consulta(caso)
+    print(f"📝 Consulta: \"{resultado['texto'][:70]}...\"" if len(resultado['texto']) > 70 
+          else f"📝 Consulta: \"{resultado['texto']}\"")
+    print(f"   ➤ Categoría: {resultado['categoria_predicha']} "
+          f"(Confianza: {resultado['confianza']}%)")
+    top2 = sorted(resultado['probabilidades'].items(), key=lambda x: x[1], reverse=True)[:2]
+    print(f"   ➤ Top 2 probabilidades: {top2[0][0]}={top2[0][1]:.4f}, "
+          f"{top2[1][0]}={top2[1][1]:.4f}")
+    print()
+
+# ==============================================================================
+# 6. RESUMEN FINAL
+# ==============================================================================
+
+print("=" * 70)
+print("  RESUMEN DEL SISTEMA JustIA - MVP")
+print("=" * 70)
+print(f"""
+  Modelo:       TF-IDF + Multinomial Naive Bayes
+  Pipeline:     scikit-learn (ngram 1-2, max_features=2000, alpha=0.3)
+  Categorías:   Familia, Laboral, Penal, Civil, Administrativo
+  Dataset:      150 muestras sintéticas (30 por categoría)
+  Exactitud:    {acc:.2%} en conjunto de prueba
+  Uso:          clasificar_consulta("texto de la consulta jurídica")
+
+  ⚠️  NOTA ÉTICA: Este sistema es un apoyo a la orientación legal.
+      No reemplaza el criterio de un abogado o juez. Toda decisión
+      jurídica final debe ser validada por un profesional del derecho.
+""")
+print("=" * 70)
