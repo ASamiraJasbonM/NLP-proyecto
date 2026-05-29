@@ -1,4 +1,6 @@
+import argparse
 import logging
+import sys
 import warnings
 
 from src.config import ModelConfig, TrainConfig
@@ -103,5 +105,26 @@ def main() -> None:
     print("=" * 70)
 
 
+def iniciar_web(host: str = "127.0.0.1", port: int = 8000) -> None:
+    import uvicorn
+    from src.api import app
+
+    log.info("Iniciando interfaz web en http://%s:%s", host, port)
+    uvicorn.run(app, host=host, port=port)
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="JustIA - Clasificador Jurídico")
+    parser.add_argument(
+        "--web", action="store_true", help="Iniciar interfaz web FastAPI"
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Host para el servidor web")
+    parser.add_argument(
+        "--port", type=int, default=8000, help="Puerto para el servidor web"
+    )
+    args = parser.parse_args()
+
+    if args.web:
+        iniciar_web(host=args.host, port=args.port)
+    else:
+        main()
