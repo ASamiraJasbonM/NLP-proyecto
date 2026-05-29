@@ -3,6 +3,8 @@ import logging
 import sys
 import warnings
 
+import pandas as pd
+
 from src.config import ModelConfig, TrainConfig
 from src.data import cargar_datos_sinteticos
 from src.model import JustiaClassifier
@@ -68,26 +70,21 @@ def fase_demo(clasificador: JustiaClassifier) -> None:
             log.error("Error clasificando '%s': %s", caso, e)
 
 
-def main() -> None:
+def main(clasificador: JustiaClassifier) -> None:
     imprimir_encabezado("JustIA - Clasificación Automática de Textos Jurídicos")
 
-    model_config = ModelConfig()
-    train_config = TrainConfig()
-    clasificador = JustiaClassifier(
-        model_config=model_config, train_config=train_config
-    )
-
     imprimir_encabezado("FASE 1: Datos y Entrenamiento")
-    fase_datos(clasificador)
+    n_train, n_test = clasificador.get_split_shapes()
+    print(f"Registros: {n_train + n_test}")
+    print(f"Categorías: {clasificador.obtener_clases()}")
+    print(f"División: {n_train} entrenamiento, {n_test} prueba")
+    print("Modelo entrenado exitosamente.")
 
     imprimir_encabezado("FASE 2: Evaluación")
     fase_evaluacion(clasificador)
 
     imprimir_encabezado("FASE 3: Demostración")
     fase_demo(clasificador)
-
-    ruta = clasificador.guardar()
-    log.info("Modelo guardado en: %s", ruta)
 
     print()
     print("=" * 70)
@@ -105,12 +102,37 @@ def main() -> None:
     print("=" * 70)
 
 
-def iniciar_web(host: str = "127.0.0.1", port: int = 8000) -> None:
+def iniciar_web(
+    clasificador: JustiaClassifier,
+    dataframe: pd.DataFrame,
+    metricas: dict,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+) -> None:
     import uvicorn
-    from src.api import app
+    from src.api import crear_app
 
-    log.info("Iniciando interfaz web en http://%s:%s", host, port)
+    app = crear_app(clasificador, dataframe, metricas)
+    log.info("Interfaz web en http://%s:%s", host, port)
     uvicorn.run(app, host=host, port=port)
+
+
+def entrenar_y_evaluar():
+    imprimir_encabezado("JustIA - Clasificación Automática de Textos Jurídicos")
+
+    model_config = ModelConfig()
+    train_config = TrainConfig()
+    clasificador = JustiaClassifier(
+        model_config=model_config, train_config=train_config
+    )
+
+    df = cargar_datos_sinteticos()
+    clasificador.entrenar(df)
+    metricas = evaluar(clasificador)
+    clasificador.guardar()
+
+    log.info("Modelo guardado. Accuracy: %.2f%%", metricas["accuracy"] * 100)
+    return clasificador, df, metricas
 
 
 if __name__ == "__main__":
@@ -124,7 +146,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    clf, df, metricas = entrenar_y_evaluar()
+
     if args.web:
-        iniciar_web(host=args.host, port=args.port)
+        iniciar_web(clf, df, metricas, host=args.host, port=args.port)
     else:
-        main()
+        main(clf)

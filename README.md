@@ -17,7 +17,8 @@ uv pip install -r requirements.txt
 ## Ejecución
 
 ```bash
-uv run python -m src.main
+uv run python -m src.main              # modo CLI (entrenar, evaluar, demo)
+uv run python -m src.main --web        # interfaz web FastAPI en http://127.0.0.1:8000
 ```
 
 ## Estructura
@@ -31,7 +32,8 @@ uv run python -m src.main
 │   ├── model.py       # Pipeline TF-IDF + Naive Bayes
 │   ├── predict.py     # Función de inferencia
 │   ├── evaluate.py    # Métricas de evaluación
-│   └── main.py        # Entry point
+│   ├── api.py         # FastAPI (endpoints /, /predict, /datos, /metricas)
+│   └── main.py        # Entry point (CLI + --web)
 ├── requirements.txt
 ├── justia_mvp.py      # Versión original (monolítica)
 └── README.md
@@ -50,6 +52,17 @@ clf.guardar("modelo.pkl")
 clf2 = JustiaClassifier().cargar("modelo.pkl")
 clf2.predecir(["Quiero divorciarme"])
 ```
+
+## Interfaz Web
+
+La API FastAPI ofrece:
+
+| Ruta | Descripción |
+|------|-------------|
+| `GET /` | UI interactiva (dataset, matriz de confusión, probador) |
+| `POST /predict` | Clasificar una consulta (JSON) |
+| `GET /datos` | Dataset completo en JSON |
+| `GET /metricas` | Accuracy, reporte y matriz de confusión |
 
 ## Categorías
 

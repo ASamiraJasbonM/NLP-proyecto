@@ -1,48 +1,14 @@
 import logging
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from src.data import cargar_datos_sinteticos
-from src.evaluate import evaluar
 from src.model import JustiaClassifier
 from src.predict import clasificar_consulta, ClasificadorError
 
 log = logging.getLogger(__name__)
-
-app = FastAPI(title="JustIA - Clasificador Jurídico")
-clasificador: JustiaClassifier = None
-df: pd.DataFrame = None
-eval_result: dict = None
-
-
-class ConsultaInput(BaseModel):
-    texto: str
-
-
-class ConsultaOutput(BaseModel):
-    texto: str
-    categoria_predicha: str
-    confianza: float
-    probabilidades: dict
-    top_n: list
-
-
-def inicializar():
-    global clasificador, df, eval_result
-    df = cargar_datos_sinteticos()
-    clasificador = JustiaClassifier().entrenar(df)
-    eval_result = evaluar(clasificador)
-    clasificador.guardar()
-    log.info("Modelo entrenado y API lista")
-
-
-@app.on_event("startup")
-async def startup():
-    inicializar()
-
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
@@ -165,54 +131,72 @@ async function predecir() {
 </html>"""
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    categorias = sorted(df["categoria"].unique())
-    acc_pct = f"{eval_result['accuracy']:.0%}"
-
-    filas = "".join(
-        f"<tr><td>{r['texto']}</td><td><span class='badge'>{r['categoria']}</span></td></tr>"
-        for _, r in df.iterrows()
-    )
-
-    html = HTML_TEMPLATE
-    html = html.replace("__REGISTROS__", str(len(df)))
-    html = html.replace("__CATEGORIAS__", str(len(categorias)))
-    html = html.replace("__ACCURACY__", acc_pct)
-    html = html.replace("__FILAS__", filas)
-    html = html.replace(
-        "__MATRIZ__", eval_result["confusion_matrix"].to_html(classes="cm-table")
-    )
-
-    return HTMLResponse(content=html)
+class ConsultaInput(BaseModel):
+    texto: str
 
 
-@app.post("/predict", response_model=ConsultaOutput)
-async def predict(input: ConsultaInput):
-    if not input.texto.strip():
-        raise HTTPException(400, "El texto no puede estar vacío")
-    try:
-        res = clasificar_consulta(input.texto, clasificador, top_n=5)
-        return ConsultaOutput(
-            texto=res["texto"],
-            categoria_predicha=res["categoria_predicha"],
-            confianza=res["confianza"],
-            probabilidades=res["probabilidades"],
-            top_n=res["top_n"],
+class ConsultaOutput(BaseModel):
+    texto: str
+    categoria_predicha: str
+    confianza: float
+    probabilidades: dict
+    top_n: list
+
+
+def crear_app(
+    clasificador: JustiaClassifier,
+    dataframe: pd.DataFrame,
+    metricas: dict,
+) -> FastAPI:
+    app = FastAPI(title="JustIA - Clasificador Jurídico")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index():
+        categorias = sorted(dataframe["categoria"].unique())
+        acc_pct = f"{metricas['accuracy']:.0%}"
+
+        filas = "".join(
+            f"<tr><td>{r['texto']}</td><td><span class='badge'>{r['categoria']}</span></td></tr>"
+            for _, r in dataframe.iterrows()
         )
-    except ClasificadorError as e:
-        raise HTTPException(400, str(e))
 
+        html = HTML_TEMPLATE
+        html = html.replace("__REGISTROS__", str(len(dataframe)))
+        html = html.replace("__CATEGORIAS__", str(len(categorias)))
+        html = html.replace("__ACCURACY__", acc_pct)
+        html = html.replace("__FILAS__", filas)
+        html = html.replace(
+            "__MATRIZ__", metricas["confusion_matrix"].to_html(classes="cm-table")
+        )
 
-@app.get("/datos")
-async def get_datos():
-    return df.to_dict(orient="records")
+        return HTMLResponse(content=html)
 
+    @app.post("/predict", response_model=ConsultaOutput)
+    async def predict(input: ConsultaInput):
+        if not input.texto.strip():
+            raise HTTPException(400, "El texto no puede estar vacío")
+        try:
+            res = clasificar_consulta(input.texto, clasificador, top_n=5)
+            return ConsultaOutput(
+                texto=res["texto"],
+                categoria_predicha=res["categoria_predicha"],
+                confianza=res["confianza"],
+                probabilidades=res["probabilidades"],
+                top_n=res["top_n"],
+            )
+        except ClasificadorError as e:
+            raise HTTPException(400, str(e))
 
-@app.get("/metricas")
-async def get_metricas():
-    return {
-        "accuracy": eval_result["accuracy"],
-        "classification_report": eval_result["classification_report"],
-        "confusion_matrix": eval_result["confusion_matrix"].to_dict(),
-    }
+    @app.get("/datos")
+    async def get_datos():
+        return dataframe.to_dict(orient="records")
+
+    @app.get("/metricas")
+    async def get_metricas():
+        return {
+            "accuracy": metricas["accuracy"],
+            "classification_report": metricas["classification_report"],
+            "confusion_matrix": metricas["confusion_matrix"].to_dict(),
+        }
+
+    return app
